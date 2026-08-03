@@ -54,6 +54,7 @@ namespace Nofun.UI
         [Inject] private IDialogService dialogService;
         [Inject] private ILayoutService layoutService;
         private DynamicIconsProvider dynamicIconsProvider;
+        private IGameImportService gameImportService;
 
         private string GamePathRoot => $"{Application.persistentDataPath}/__Games";
 
@@ -79,6 +80,7 @@ namespace Nofun.UI
             }
 
             gameDatabase = new GameDatabase(GameDatabasePath);
+            gameImportService = new GameImportService();
             dynamicIconsProvider = new DynamicIconsProvider(dynamicIconRendererContainer);
 
             Directory.CreateDirectory(GamePathRoot);
@@ -211,7 +213,7 @@ namespace Nofun.UI
             {
                 try
                 {
-                    VMGPExecutable executable = new VMGPExecutable(executableFile);
+                    using VMGPExecutable executable = new VMGPExecutable(executableFile);
 
                     VMMetaInfoReader metaInfoReader = executable.GetMetaInfo();
                     if (metaInfoReader == null)
@@ -272,9 +274,21 @@ namespace Nofun.UI
                     }
                     else
                     {
-                        // Save the game into the persistent data folder
                         string gamePath = GetGamePath(gameInfo);
-                        File.Copy(path, gamePath, true);
+                        GameImportResult importResult = gameImportService.Import(path, gamePath);
+                        if (!importResult.Succeeded)
+                        {
+                            gameDatabase.RemoveGame(gameInfo);
+                            Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                                $"Game import failed ({importResult.ErrorCode}): {importResult.Message}\n{importResult.Exception}");
+
+                            dialogService.Show(Severity.Error,
+                                ButtonType.OK,
+                                translationService.Translate("Error"),
+                                importResult.Message,
+                                null);
+                            return;
+                        }
 
                         dialogService.Show(Severity.Info,
                             ButtonType.OK,
@@ -287,6 +301,8 @@ namespace Nofun.UI
                 }
                 catch (Exception ex)
                 {
+                    Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                        $"Game metadata parsing failed for selected import: {ex}");
                     dialogService.Show(Severity.Error,
                         ButtonType.OK,
                         translationService.Translate("Error"),
@@ -323,7 +339,13 @@ namespace Nofun.UI
 
             if (!permissionGranted)
             {
-                Debug.Log("Todo: Show error message not granted");
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    "The system file picker did not grant access to the selected game.");
+                dialogService.Show(Severity.Error,
+                    ButtonType.OK,
+                    translationService.Translate("Error"),
+                    "Onlyfun could not access the selected file. Please choose it again.",
+                    null);
             }
         }
 
