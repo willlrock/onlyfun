@@ -72,6 +72,7 @@ namespace Nofun
 
         private bool llvmPrepared = false;
         private int llvmPreparingDialogId = -1;
+        private static FileLogTarget fileLogTarget;
 
         [Inject] private ScreenManager screenManager;
         [Inject] private IDialogService dialogService;
@@ -95,6 +96,11 @@ namespace Nofun
         private void SetupLogger()
         {
             Util.Logging.Logger.AddTarget(new UnityLogTarget());
+            if (fileLogTarget == null)
+            {
+                fileLogTarget = new FileLogTarget(Application.persistentDataPath);
+                Util.Logging.Logger.AddTarget(fileLogTarget);
+            }
         }
 
         private void OnDestroy()
@@ -187,14 +193,9 @@ namespace Nofun
 
 #if !UNITY_EDITOR && NOFUN_PRODUCTION
 #if UNITY_ANDROID
-            try
-            {
-                gameStream = new MophunAndroidFileStream();
-            }
-            catch (System.Exception _)
-            {
-                return;
-            }
+            // Normal Android launches always open the library. Imports are copied to private
+            // storage by GameImportService before the emulator sees them.
+            return;
 #else
             string[] cmdLines = System.Environment.GetCommandLineArgs();
 
@@ -235,7 +236,7 @@ namespace Nofun
             executableFilePath = gamePath;
             launchRequested = true;
 
-            FileStream stream = new FileStream(gamePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            FileStream stream = new FileStream(gamePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             StartGameImpl(stream, gamePath);
         }
 
@@ -279,19 +280,38 @@ namespace Nofun
                 system = new VMSystem(executable, new VMSystemCreateParameters(graphicDriver, inputDriver, audioDriver, timeDriver, uiDriver,
                     Application.persistentDataPath, targetExecutable, enableLLVM));
             }
-            catch (System.Exception _)
+            catch (System.Exception ex)
             {
-                dialogService.Show(Severity.Info, ButtonType.OK,
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    $"Game load failed during executable/VM creation: {ex}");
+
+                system?.Dispose();
+                system = null;
+
+                if (executable != null)
+                {
+                    executable.Dispose();
+                    executable = null;
+                }
+                else
+                {
+                    gameStream?.Dispose();
+                }
+
+                dialogService.Show(Severity.Error, ButtonType.OK,
                     null,
                     translationService.Translate("Error_Description_GameNotCompatible"),
-                    value => Application.Quit());
+                    null);
 
                 failed = true;
+                launchRequested = false;
+                gameListDocumentController.ImmediateShow();
 
                 return;
             }
 
-            settingDocument.Setup(settingManager, system.GameName, VMSystem.GetSuitableDefaultSetting(system.Executable));
+            settingDocument.Setup(settingManager, system.GameName,
+                GameProfileResolver.Resolve(system.GameName, system.Executable));
 
             settingDocument.Finished += FinishSettingDocument;
             settingDocument.ExitGameRequested += HandleExitGame;
@@ -335,7 +355,7 @@ namespace Nofun
         private IEnumerator InitializeGameRun()
         {
             GameSetting? setting = settingManager.Get(system.GameName);
-            setting = setting ?? VMSystem.GetSuitableDefaultSetting(system.Executable);
+            setting = setting ?? GameProfileResolver.Resolve(system.GameName, system.Executable);
 
             system.GameSetting = setting.Value;
 
