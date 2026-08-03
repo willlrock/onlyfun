@@ -49,8 +49,8 @@ namespace Nofun.Settings
             // Early builds saved the 3D defaults for Honey Cave 2. Discard that known-bad
             // value so the resolver can restore the correct legacy profile.
             if (GameProfileResolver.IsHoneyCave2(gameName) &&
-                (setting.screenSizeX != 101 || setting.screenSizeY != 80 ||
-                 setting.systemVersion != SystemVersion.Version130))
+                setting.screenSizeX == 240 && setting.screenSizeY == 320 &&
+                setting.systemVersion == SystemVersion.Version150)
             {
                 File.Delete(gameSettingPath);
                 return null;

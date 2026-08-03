@@ -62,7 +62,7 @@ namespace Nofun.VM
         private uint taskStackSectionAddress;
         private uint taskTerminateSubAddress;
 
-        private bool shouldStop = false;
+        private volatile bool shouldStop = false;
         private string gameName;
 
         public GameSetting GameSetting { get; set; }
@@ -267,7 +267,7 @@ namespace Nofun.VM
         public void Stop()
         {
             shouldStop = true;
-            processor.Stop();
+            processor?.Stop();
         }
 
         public bool RunDestructor()

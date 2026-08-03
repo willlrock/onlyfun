@@ -137,9 +137,10 @@ namespace Nofun.UI
                 }
 
                 runner.gameObject.SetActive(true);
-                runner.Launch(gamePath);
-
-                ImmediateHide();
+                if (runner.Launch(gamePath))
+                {
+                    ImmediateHide();
+                }
             }
         }
 
@@ -209,12 +210,26 @@ namespace Nofun.UI
                 return;
             }
 
-            using (var executableFile = File.OpenRead(path))
+            string stagedPath = Path.Combine(GamePathRoot, $".{Guid.NewGuid():N}.mpn");
+            GameImportResult importResult = gameImportService.Import(path, stagedPath);
+            if (!importResult.Succeeded)
             {
-                try
-                {
-                    using VMGPExecutable executable = new VMGPExecutable(executableFile);
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    $"Game import failed ({importResult.ErrorCode}): {importResult.Message}\n{importResult.Exception}");
+                dialogService.Show(Severity.Error,
+                    ButtonType.OK,
+                    translationService.Translate("Error"),
+                    importResult.Message,
+                    null);
+                return;
+            }
 
+            try
+            {
+                GameInfo gameInfo;
+                using (var executableFile = File.OpenRead(stagedPath))
+                using (VMGPExecutable executable = new VMGPExecutable(executableFile))
+                {
                     VMMetaInfoReader metaInfoReader = executable.GetMetaInfo();
                     if (metaInfoReader == null)
                     {
@@ -252,62 +267,77 @@ namespace Nofun.UI
                             ? null
                             : version.Split(".", StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Util.Logging.Logger.Warning(Util.Logging.LogClass.Loader,
+                            $"Game metadata contains an invalid version '{version}': {ex}");
                         versionNumbers = new[] { 0, 0, 0 };
                     }
 
-                    GameInfo gameInfo = new GameInfo(titleName, vendor ?? null,
+                    gameInfo = new GameInfo(titleName, vendor ?? null,
                         versionNumbers != null && versionNumbers.Length >= 1 ? versionNumbers[0] : 0,
                         versionNumbers != null && versionNumbers.Length >= 2 ? versionNumbers[1] : 0,
                         versionNumbers != null && versionNumbers.Length >= 3 ? versionNumbers[2] : 0);
+                }
 
-                    if (!gameDatabase.AddGame(gameInfo))
+                if (!gameDatabase.AddGame(gameInfo))
+                {
+                    dialogService.Show(Severity.Error,
+                        ButtonType.OK,
+                        translationService.Translate("Error"),
+                        translationService.Translate("Error_Description_GameAlreadyInstalled"),
+                        null);
+
+                    return;
+                }
+
+                string gamePath = GetGamePath(gameInfo);
+                try
+                {
+                    if (File.Exists(gamePath))
                     {
-                        dialogService.Show(Severity.Error,
-                            ButtonType.OK,
-                            translationService.Translate("Error"),
-                            translationService.Translate("Error_Description_GameAlreadyInstalled"),
-                            null);
-
-                        return;
+                        File.Delete(gamePath);
                     }
-                    else
+
+                    File.Move(stagedPath, gamePath);
+                }
+                catch (Exception ex)
+                {
+                    gameDatabase.RemoveGame(gameInfo);
+                    throw new IOException("Could not finalize the private game copy.", ex);
+                }
+
+                dialogService.Show(Severity.Info,
+                    ButtonType.OK,
+                    translationService.Translate("Success"),
+                    translationService.Translate("Success_Description_Install"),
+                    null);
+
+                LoadGameList();
+            }
+            catch (Exception ex)
+            {
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    $"Game metadata parsing failed for private import: {ex}");
+                dialogService.Show(Severity.Error,
+                    ButtonType.OK,
+                    translationService.Translate("Error"),
+                    translationService.Translate("Error_Description_NotMophun"),
+                    null);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(stagedPath))
                     {
-                        string gamePath = GetGamePath(gameInfo);
-                        GameImportResult importResult = gameImportService.Import(path, gamePath);
-                        if (!importResult.Succeeded)
-                        {
-                            gameDatabase.RemoveGame(gameInfo);
-                            Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
-                                $"Game import failed ({importResult.ErrorCode}): {importResult.Message}\n{importResult.Exception}");
-
-                            dialogService.Show(Severity.Error,
-                                ButtonType.OK,
-                                translationService.Translate("Error"),
-                                importResult.Message,
-                                null);
-                            return;
-                        }
-
-                        dialogService.Show(Severity.Info,
-                            ButtonType.OK,
-                            translationService.Translate("Success"),
-                            translationService.Translate("Success_Description_Install"),
-                            null);
-
-                        LoadGameList();
+                        File.Delete(stagedPath);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
-                        $"Game metadata parsing failed for selected import: {ex}");
-                    dialogService.Show(Severity.Error,
-                        ButtonType.OK,
-                        translationService.Translate("Error"),
-                        translationService.Translate("Error_Description_NotMophun"),
-                        null);
+                    Util.Logging.Logger.Warning(Util.Logging.LogClass.Loader,
+                        $"Could not remove staged game import: {ex}");
                 }
             }
         }
@@ -327,6 +357,11 @@ namespace Nofun.UI
                 {
                     name = "Mophun game",
                     spec = "application/octet-stream"
+                },
+                new FilterItem
+                {
+                    name = "Mophun game (unknown type)",
+                    spec = "*/*"
                 }
                 #endif
             }, (string path) =>

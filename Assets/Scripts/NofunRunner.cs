@@ -54,6 +54,7 @@ namespace Nofun
         [SerializeField] private GameDetailsDocumentController gameDetailsDocument;
         [SerializeField] private GameListDocumentController gameListDocumentController;
         [SerializeField] private float waitTimeBeforeNotifyUserOfLLVM = 0.2f;
+        [SerializeField] private float llvmPreparationTimeout = 30.0f;
 
         [Header("Settings")]
         [Range(1, 60)][SerializeField] private int fpsLimit = 30;
@@ -70,9 +71,10 @@ namespace Nofun
         private bool settingActive = false;
         private bool launchRequested = false;
 
-        private bool llvmPrepared = false;
+        private volatile bool llvmPrepared = false;
         private int llvmPreparingDialogId = -1;
         private static FileLogTarget fileLogTarget;
+        private volatile bool isDestroying = false;
 
         [Inject] private ScreenManager screenManager;
         [Inject] private IDialogService dialogService;
@@ -105,12 +107,12 @@ namespace Nofun
 
         private void OnDestroy()
         {
+            isDestroying = true;
             settingDocument.Finished -= FinishSettingDocument;
             settingDocument.ExitGameRequested -= HandleExitGame;
-
-            if (system != null)
+            if (StopAndJoinSystemThread())
             {
-                system.Stop();
+                Reset();
             }
         }
 
@@ -154,7 +156,7 @@ namespace Nofun
             settingActive = false;
             JobScheduler.Paused = false;
 
-            system.Stop();
+            system?.Stop();
         }
 
         private void OpenGameSetting()
@@ -216,38 +218,57 @@ namespace Nofun
 #endif
 
 #if UNITY_EDITOR || !UNITY_ANDROID
-                gameStream = new FileStream(targetExecutable, FileMode.Open, FileAccess.ReadWrite,
+                gameStream = new FileStream(targetExecutable, FileMode.Open, FileAccess.Read,
                     FileShare.Read);
 #endif
 
-                gameListDocumentController.ImmediateHide();
                 launchRequested = true;
 
-                StartGameImpl(gameStream, targetExecutable);
+                if (StartGameImpl(gameStream, targetExecutable))
+                {
+                    gameListDocumentController.ImmediateHide();
+                }
 #if UNITY_EDITOR
             }
 #endif
         }
 
-        public void Launch(string gamePath)
+        public bool Launch(string gamePath)
         {
+            if (!StopAndJoinSystemThread())
+            {
+                dialogService.Show(Severity.Error, ButtonType.OK,
+                    null,
+                    "The previous game is still stopping. Please try again.",
+                    null);
+                gameListDocumentController.ImmediateShow();
+                return false;
+            }
+
             Reset();
 
             executableFilePath = gamePath;
             launchRequested = true;
 
-            FileStream stream = new FileStream(gamePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            StartGameImpl(stream, gamePath);
+            try
+            {
+                FileStream stream = new FileStream(gamePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return StartGameImpl(stream, gamePath);
+            }
+            catch (System.Exception ex)
+            {
+                HandleLoadFailure(null, ex, "opening the private game file");
+                return false;
+            }
         }
 
         private void Reset()
         {
-            bool shouldGc = false;
+            settingDocument.Finished -= FinishSettingDocument;
+            settingDocument.ExitGameRequested -= HandleExitGame;
 
             if (system != null)
             {
-                shouldGc = true;
-
                 system.Dispose();
                 system = null;
             }
@@ -262,29 +283,42 @@ namespace Nofun
                 executable = null;
             }
 
-            if (shouldGc)
-            {
-                GC.Collect();
-            }
-
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             SetWindowText(currentWindow, $"nofun");
 #endif
         }
 
-        public void StartGameImpl(Stream gameStream, string targetExecutable)
+        private bool StopAndJoinSystemThread()
         {
             try
             {
-                executable = new VMGPExecutable(gameStream);
-                system = new VMSystem(executable, new VMSystemCreateParameters(graphicDriver, inputDriver, audioDriver, timeDriver, uiDriver,
-                    Application.persistentDataPath, targetExecutable, enableLLVM));
+                system?.Stop();
             }
             catch (System.Exception ex)
             {
                 Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
-                    $"Game load failed during executable/VM creation: {ex}");
+                    $"Requesting VM worker stop failed: {ex}");
+            }
 
+            if (systemThread != null && systemThread.IsAlive && Thread.CurrentThread != systemThread &&
+                !systemThread.Join(2000))
+            {
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    "VM worker did not stop within two seconds; its resources were left intact.");
+                return false;
+            }
+
+            systemThread = null;
+            return true;
+        }
+
+        private void HandleLoadFailure(Stream gameStream, System.Exception ex, string stage)
+        {
+            Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                $"Game load failed while {stage}: {ex}");
+
+            try
+            {
                 system?.Dispose();
                 system = null;
 
@@ -297,86 +331,157 @@ namespace Nofun
                 {
                     gameStream?.Dispose();
                 }
-
-                dialogService.Show(Severity.Error, ButtonType.OK,
-                    null,
-                    translationService.Translate("Error_Description_GameNotCompatible"),
-                    null);
-
-                failed = true;
-                launchRequested = false;
-                gameListDocumentController.ImmediateShow();
-
-                return;
+            }
+            catch (System.Exception cleanupException)
+            {
+                Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                    $"Game cleanup failed after the original load error: {cleanupException}");
             }
 
-            settingDocument.Setup(settingManager, system.GameName,
-                GameProfileResolver.Resolve(system.GameName, system.Executable));
+            failed = true;
+            launchRequested = false;
+            settingActive = false;
+            JobScheduler.Paused = false;
+            settingDocument.Finished -= FinishSettingDocument;
+            settingDocument.ExitGameRequested -= HandleExitGame;
+            gameListDocumentController.ImmediateShow();
 
-            settingDocument.Finished += FinishSettingDocument;
-            settingDocument.ExitGameRequested += HandleExitGame;
+            dialogService.Show(Severity.Error, ButtonType.OK,
+                null,
+                translationService.Translate("Error_Description_GameNotCompatible"),
+                null);
+        }
 
-            if (settingManager.Get(system.GameName) == null)
+        public bool StartGameImpl(Stream gameStream, string targetExecutable)
+        {
+            try
             {
-                OpenGameSetting();
-            }
+                executable = new VMGPExecutable(gameStream);
+                system = new VMSystem(executable, new VMSystemCreateParameters(graphicDriver, inputDriver, audioDriver, timeDriver, uiDriver,
+                    Application.persistentDataPath, targetExecutable, enableLLVM));
 
-            systemThread = new Thread(new ThreadStart(() =>
-            {
-                system.PostInitialize();
-                llvmPrepared = true;
+                settingDocument.Setup(settingManager, system.GameName,
+                    GameProfileResolver.Resolve(system.GameName, system.Executable));
 
-                while (!system.ShouldStop)
+                settingDocument.Finished -= FinishSettingDocument;
+                settingDocument.ExitGameRequested -= HandleExitGame;
+                settingDocument.Finished += FinishSettingDocument;
+                settingDocument.ExitGameRequested += HandleExitGame;
+
+                if (settingManager.Get(system.GameName) == null)
                 {
+                    OpenGameSetting();
+                }
+
+                VMSystem runningSystem = system;
+                systemThread = new Thread(() =>
+                {
+                    System.Exception failure = null;
                     try
                     {
-                        system.Run();
+                        runningSystem.PostInitialize();
+                        llvmPrepared = true;
+
+                        while (!runningSystem.ShouldStop)
+                        {
+                            runningSystem.Run();
+                        }
                     }
                     catch (System.Exception ex)
                     {
-                        Util.Logging.Logger.Error(Util.Logging.LogClass.Loader, $"System execution encounter exception: {ex}");
-                        break;
+                        failure = ex;
+                        Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                            $"VM initialization or execution failed: {ex}");
                     }
-                }
-
-                Reset();
-
-                JobScheduler.Instance.RunOnUnityThread(() =>
+                    finally
+                    {
+                        llvmPrepared = true;
+                        if (!isDestroying)
+                        {
+                            JobScheduler.Instance.RunOnUnityThread(() =>
+                                HandleSystemThreadFinished(runningSystem, failure));
+                        }
+                    }
+                })
                 {
-                    StartCoroutine(ShowGameListDelay());
-                });
-            }));
+                    IsBackground = true,
+                    Name = "Onlyfun VM"
+                };
+            }
+            catch (System.Exception ex)
+            {
+                HandleLoadFailure(gameStream, ex, "creating the executable and VM");
+                return false;
+            }
 
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             currentWindow = GetActiveWindow();
 #endif
+            return true;
+        }
+
+        private void HandleSystemThreadFinished(VMSystem finishedSystem, System.Exception failure)
+        {
+            if (system != finishedSystem || isDestroying)
+            {
+                return;
+            }
+
+            if (llvmPreparingDialogId >= 0)
+            {
+                dialogService.CloseBlocked(llvmPreparingDialogId);
+                llvmPreparingDialogId = -1;
+            }
+
+            Reset();
+            StartCoroutine(ShowGameListDelay());
+
+            if (failure != null)
+            {
+                dialogService.Show(Severity.Error, ButtonType.OK,
+                    null,
+                    translationService.Translate("Error_Description_GameNotCompatible"),
+                    null);
+            }
         }
 
         private IEnumerator InitializeGameRun()
         {
-            GameSetting? setting = settingManager.Get(system.GameName);
-            setting = setting ?? GameProfileResolver.Resolve(system.GameName, system.Executable);
-
-            system.GameSetting = setting.Value;
-
-            // Change orientation first
-            screenManager.ScreenOrientation = setting.Value.orientation;
-
-            graphicDriver.Initialize((setting.Value.screenMode == ScreenMode.CustomSize) ?
-                new Vector2(setting.Value.screenSizeX, setting.Value.screenSizeY) :
-                Vector2.zero, setting.Value.enableSoftwareScissor);
-
-            graphicDriver.FpsLimit = Mathf.Clamp(setting.Value.fps, 1, 120);
-            systemThread.Start();
-
-            if (setting.Value.cpuBackend == CPUBackend.LLVM)
+            GameSetting setting;
+            try
             {
-                llvmPrepared = false;
-                llvmPreparingDialogId = -1;
+                GameSetting? storedSetting = settingManager.Get(system.GameName);
+                setting = storedSetting ?? GameProfileResolver.Resolve(system.GameName, system.Executable);
 
+                system.GameSetting = setting;
+
+                // Change orientation first
+                screenManager.ScreenOrientation = setting.orientation;
+
+                graphicDriver.Initialize((setting.screenMode == ScreenMode.CustomSize) ?
+                    new Vector2(setting.screenSizeX, setting.screenSizeY) :
+                    Vector2.zero, setting.enableSoftwareScissor);
+
+                graphicDriver.FpsLimit = Mathf.Clamp(setting.fps, 1, 120);
+                if (setting.cpuBackend == CPUBackend.LLVM)
+                {
+                    llvmPrepared = false;
+                    llvmPreparingDialogId = -1;
+                }
+
+                systemThread.Start();
+            }
+            catch (System.Exception ex)
+            {
+                HandleLoadFailure(null, ex, "initializing graphics and starting the VM worker");
+                yield break;
+            }
+
+            if (setting.cpuBackend == CPUBackend.LLVM)
+            {
                 float elapsedTime = 0.0f;
 
-                while (!llvmPrepared)
+                while (!llvmPrepared && elapsedTime < llvmPreparationTimeout)
                 {
                     if (waitTimeBeforeNotifyUserOfLLVM <= elapsedTime && llvmPreparingDialogId < 0)
                     {
@@ -390,9 +495,22 @@ namespace Nofun
                     elapsedTime += Time.deltaTime;
                 }
 
+                if (!llvmPrepared)
+                {
+                    Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
+                        $"LLVM initialization exceeded {llvmPreparationTimeout:0.0} seconds.");
+                    system?.Stop();
+                    launchRequested = false;
+                    dialogService.Show(Severity.Error, ButtonType.OK,
+                        null,
+                        "LLVM initialization timed out. Onlyfun will return to the library.",
+                        null);
+                }
+
                 if (llvmPreparingDialogId >= 0)
                 {
                     dialogService.CloseBlocked(llvmPreparingDialogId);
+                    llvmPreparingDialogId = -1;
                 }
             }
 

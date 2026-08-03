@@ -23,7 +23,7 @@ namespace Nofun.PIP2.Interpreter
     {
         private Action<UInt32>[] OpcodeTables;
 
-        private bool shouldStop = false;
+        private volatile bool shouldStop = false;
         private bool isRunning = false;
         private int instructionRan = 0;
 
