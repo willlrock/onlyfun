@@ -44,7 +44,19 @@ namespace Nofun.Settings
                 return null;
             }
 
-            return JsonUtility.FromJson<GameSetting>(File.ReadAllText(gameSettingPath));
+            GameSetting setting = JsonUtility.FromJson<GameSetting>(File.ReadAllText(gameSettingPath));
+
+            // Early builds saved the 3D defaults for Honey Cave 2. Discard that known-bad
+            // value so the resolver can restore the correct legacy profile.
+            if (GameProfileResolver.IsHoneyCave2(gameName) &&
+                (setting.screenSizeX != 101 || setting.screenSizeY != 80 ||
+                 setting.systemVersion != SystemVersion.Version130))
+            {
+                File.Delete(gameSettingPath);
+                return null;
+            }
+
+            return setting;
         }
 
         public bool Set(string gameName, GameSetting setting)

@@ -94,7 +94,8 @@ namespace Nofun.UI
             {
                 VMGPExecutable executable = new VMGPExecutable(stream);
 
-                settingDocumentController.Setup(gameSettingsManager, activeGameInfo.Name, VMSystem.GetSuitableDefaultSetting(executable));
+                settingDocumentController.Setup(gameSettingsManager, activeGameInfo.Name,
+                    GameProfileResolver.Resolve(activeGameInfo.Name, executable));
                 settingDocumentController.Show();
             }
         }

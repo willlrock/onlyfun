@@ -315,50 +315,7 @@ namespace Nofun.VM
 
         public static GameSetting GetSuitableDefaultSetting(VMGPExecutable executable)
         {
-            bool IsNewGenerationGame()
-            {
-                var poolItems = executable.PoolItems;
-                foreach (var poolItem in poolItems)
-                {
-                    if (poolItem.poolType == PoolItemType.ImportSymbol)
-                    {
-                        var importName = executable.GetString(poolItem.metaOffset);
-                        if (importName == "vInit3D")
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
-            }
-
-            if (IsNewGenerationGame())
-            {
-                return new GameSetting()
-                {
-                    screenSizeX = 240,
-                    screenSizeY = 320,
-                    fps = 60,
-                    screenMode = ScreenMode.CustomSize,
-                    deviceModel = Module.VMGPCaps.SystemDeviceModel.NokiaNgage,
-                    systemVersion = SystemVersion.Version150,
-                    enableSoftwareScissor = false
-                };
-            }
-            else
-            {
-                return new GameSetting()
-                {
-                    screenSizeX = 101,
-                    screenSizeY = 80,
-                    fps = 15,
-                    screenMode = ScreenMode.CustomSize,
-                    deviceModel = Module.VMGPCaps.SystemDeviceModel.SonyEricssonT310,
-                    systemVersion = SystemVersion.Version130,
-                    enableSoftwareScissor = false
-                };
-            }
+            return GameProfileResolver.Resolve(null, executable);
         }
 
         public bool ShouldStop => shouldStop;
