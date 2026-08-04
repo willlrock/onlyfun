@@ -346,10 +346,17 @@ namespace Nofun
             settingDocument.ExitGameRequested -= HandleExitGame;
             gameListDocumentController.ImmediateShow();
 
-            dialogService.Show(Severity.Error, ButtonType.OK,
+            dialogService.Show(Severity.Error, ButtonType.YesNo,
                 null,
-                translationService.Translate("Error_Description_GameNotCompatible"),
-                null);
+                translationService.Translate("Error_Description_GameNotCompatible") + "\n\nDo you want to save the error logs?",
+                (int result) =>
+                {
+                    if (result == 0)
+                    {
+                        string logPath = System.IO.Path.Combine(Application.persistentDataPath, "onlyfun.log");
+                        Nofun.Plugins.FilePicker.ExportLog(logPath, null);
+                    }
+                });
         }
 
         public bool StartGameImpl(Stream gameStream, string targetExecutable)
@@ -438,10 +445,17 @@ namespace Nofun
 
             if (failure != null)
             {
-                dialogService.Show(Severity.Error, ButtonType.OK,
+                dialogService.Show(Severity.Error, ButtonType.YesNo,
                     null,
-                    translationService.Translate("Error_Description_GameNotCompatible"),
-                    null);
+                    translationService.Translate("Error_Description_GameNotCompatible") + "\n\nDo you want to save the error logs?",
+                    (int result) =>
+                    {
+                        if (result == 0)
+                        {
+                            string logPath = System.IO.Path.Combine(Application.persistentDataPath, "onlyfun.log");
+                            Nofun.Plugins.FilePicker.ExportLog(logPath, null);
+                        }
+                    });
             }
         }
 

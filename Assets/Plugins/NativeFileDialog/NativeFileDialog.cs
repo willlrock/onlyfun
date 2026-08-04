@@ -109,6 +109,77 @@ namespace Nofun.Plugins.Private
 
             return path;
         }
+
+        [DllImport("nfd", EntryPoint = "NFD_SaveDialogU8")]
+        private static extern int NFD_SaveDialogU8(out IntPtr outPath, IntPtr filterList, uint count, IntPtr defaultPath, IntPtr defaultName);
+
+        public static string OpenSaveFileDialog(FilterItem[] filters, string defaultPath = null, string defaultName = null)
+        {
+            IntPtr filterList = IntPtr.Zero;
+            NFDU8FilterItem[] filterItems = null;
+            GCHandle filterListHandle = default;
+
+            if (filters != null)
+            {
+                filterItems = new NFDU8FilterItem[filters.Length];
+                for (int i = 0; i < filters.Length; i++)
+                {
+                    filterItems[i].name = StringToMarshalledUtf8(filters[i].name);
+                    filterItems[i].spec = StringToMarshalledUtf8(filters[i].spec);
+                }
+                filterListHandle = GCHandle.Alloc(filterItems, GCHandleType.Pinned);
+                filterList = filterListHandle.AddrOfPinnedObject();
+            }
+
+            IntPtr defaultPathPtr = IntPtr.Zero;
+            if (defaultPath != null)
+            {
+                defaultPathPtr = StringToMarshalledUtf8(defaultPath);
+            }
+
+            IntPtr defaultNamePtr = IntPtr.Zero;
+            if (defaultName != null)
+            {
+                defaultNamePtr = StringToMarshalledUtf8(defaultName);
+            }
+
+            IntPtr outPath = IntPtr.Zero;
+            int result = NFD_SaveDialogU8(out outPath, filterList, filters == null ? 0 : (uint)filters.Length, defaultPathPtr, defaultNamePtr);
+
+            if (result != NFD_RESULT_OK)
+            {
+                return null;
+            }
+
+            string path = Marshal.PtrToStringUTF8(outPath);
+            NFD_FreePathU8(outPath);
+
+            if (defaultPathPtr != IntPtr.Zero)
+            {
+                FreeMarshalledUtf8(defaultPathPtr);
+            }
+
+            if (defaultNamePtr != IntPtr.Zero)
+            {
+                FreeMarshalledUtf8(defaultNamePtr);
+            }
+
+            if (filterList != IntPtr.Zero)
+            {
+                for (int i = 0; i < filters.Length; i++)
+                {
+                    FreeMarshalledUtf8(filterItems[i].name);
+                    FreeMarshalledUtf8(filterItems[i].spec);
+                }
+
+                if (filterListHandle.IsAllocated)
+                {
+                    filterListHandle.Free();
+                }
+            }
+
+            return path;
+        }
     }
 }
 #endif

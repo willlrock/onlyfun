@@ -70,5 +70,53 @@ namespace Nofun.Plugins
             return true;
         }
 #endif
+
+        public static void ExportLog(string sourcePath, Action<bool> onFinished)
+        {
+#if UNITY_EDITOR
+            string path = UnityEditor.EditorUtility.SaveFilePanel("Save Log", "", "onlyfun.log", "log");
+            if (!string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    System.IO.File.Copy(sourcePath, path, true);
+                    onFinished?.Invoke(true);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"Failed to export log: {ex}");
+                    onFinished?.Invoke(false);
+                }
+            }
+            else
+            {
+                onFinished?.Invoke(false);
+            }
+#elif UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN || UNITY_STANDALONE_LINUX
+            FilterItem[] filters = new FilterItem[] { new FilterItem { name = "Log file", spec = "log" } };
+            string path = NativeFileDialog.OpenSaveFileDialog(filters, null, "onlyfun.log");
+            if (!string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    System.IO.File.Copy(sourcePath, path, true);
+                    onFinished?.Invoke(true);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogError($"Failed to export log: {ex}");
+                    onFinished?.Invoke(false);
+                }
+            }
+            else
+            {
+                onFinished?.Invoke(false);
+            }
+#elif UNITY_ANDROID
+            NativeFilePicker.ExportFile(sourcePath, onFinished);
+#else
+            onFinished?.Invoke(false);
+#endif
+        }
     }
 }
