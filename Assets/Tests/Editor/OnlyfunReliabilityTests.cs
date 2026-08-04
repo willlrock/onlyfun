@@ -127,7 +127,8 @@ namespace Nofun.Tests
             Assert.That(Field(profileType, profile, "screenSizeX"), Is.EqualTo(101));
             Assert.That(Field(profileType, profile, "screenSizeY"), Is.EqualTo(80));
             Assert.That(Field(profileType, profile, "orientation").ToString(), Is.EqualTo("Potrait"));
-            Assert.That(Field(profileType, profile, "deviceModel").ToString(), Is.EqualTo("SonyEricssonT310"));
+            object deviceModel = Field(profileType, profile, "deviceModel");
+            Assert.That(deviceModel, Is.EqualTo(Enum.Parse(deviceModel.GetType(), "SonyEricssonT310")));
             Assert.That(Field(profileType, profile, "systemVersion").ToString(), Is.EqualTo("Version130"));
             Assert.That(Field(profileType, profile, "cpuBackend").ToString(), Is.EqualTo("Interpreter"));
             Assert.That(Field(profileType, profile, "fps"), Is.EqualTo(15));
