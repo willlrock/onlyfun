@@ -54,18 +54,20 @@ namespace Nofun.Plugins
 #elif UNITY_ANDROID
         public static bool OpenPickFileDialog(FilterItem[] filters, Action<string> onPathReceived, string defaultPath = null)
         {
-            if (NativeFilePicker.PickFile(
-                (string path) => onPathReceived(path),
+            NativeFilePicker.PickFile(
+                (string path) =>
+                {
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        Debug.LogWarning("Open file picker was cancelled or permission was denied.");
+                    }
+
+                    onPathReceived(path);
+                },
                 filters.Select(item => item.spec).ToArray()
-            ) != NativeFilePicker.Permission.Granted)
-            {
-                Debug.LogError("Open file picker permission denied!");
-                return false;
-            }
-            else
-            {
-                return true;
-            }
+            );
+
+            return true;
         }
 #endif
     }
