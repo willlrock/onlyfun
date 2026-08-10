@@ -143,25 +143,41 @@ namespace Nofun.PIP2.Interpreter
             shouldStop = false;
             isRunning = true;
 
-            instructionRan = 0;
-
-            while (!shouldStop && (instructionRan < instructionPerRun))
+            try
             {
-                uint value = config.ReadCode(registers[Register.PCIndex]);
-                Action<UInt32> handler = OpcodeTables[value & 0xFF];
+                instructionRan = 0;
 
-                if (handler == null)
+                while (!shouldStop && (instructionRan < instructionPerRun))
                 {
-                    throw new InvalidOperationException($"Unimplemented opcode {(Opcode)(value & 0xFF)} at PC={registers[Register.PCIndex]}");
+                    uint programCounter = registers[Register.PCIndex];
+                    uint value = config.ReadCode(programCounter);
+                    uint opcode = value & 0xFF;
+
+                    if (opcode >= OpcodeTables.Length)
+                    {
+                        throw new InvalidProgramException(
+                            $"Invalid opcode 0x{opcode:X2} at PC=0x{programCounter:X8}. " +
+                            "The Mophun code section is probably still encrypted or is corrupt.");
+                    }
+
+                    Action<UInt32> handler = OpcodeTables[opcode];
+
+                    if (handler == null)
+                    {
+                        throw new InvalidProgramException(
+                            $"Unsupported opcode 0x{opcode:X2} at PC=0x{programCounter:X8}.");
+                    }
+
+                    registers[Register.PCIndex] += InstructionSize;
+                    handler(value);
+
+                    instructionRan++;
                 }
-
-                registers[Register.PCIndex] += InstructionSize;
-                handler(value);
-
-                instructionRan++;
             }
-
-            isRunning = false;
+            finally
+            {
+                isRunning = false;
+            }
         }
 
         public override void Stop()

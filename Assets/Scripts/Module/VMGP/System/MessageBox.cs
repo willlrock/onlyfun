@@ -27,24 +27,43 @@ namespace Nofun.Module.VMGP
     {
 
         [ModuleCall]
-        private int vMsgBox(uint flags, VMString message, VMString optionalTitle)
+        private int vMsgBox(int flags, VMString message, VMString optionalTitle)
         {
+            return ShowMessageBox(flags, message, optionalTitle, false);
+        }
+
+        [ModuleCall]
+        private int vMsgBoxU(int flags, VMString message, VMString optionalTitle)
+        {
+            return ShowMessageBox(flags, message, optionalTitle, true);
+        }
+
+        private static int ToMophunButtonValue(int uiButtonValue)
+        {
+            // Onlyfun's dialogs report the right-hand OK/Yes button as 0, while
+            // Mophun specifies OK/Yes as 1 and No/Cancel as 0.
+            return uiButtonValue == 0 ? (int)MessageBoxFlags.OK : (int)MessageBoxFlags.Cancel;
+        }
+
+        private int ShowMessageBox(int flags, VMString message, VMString optionalTitle, bool isUnicode)
+        {
+            uint flagBits = unchecked((uint)flags);
             Severity boxSeverity;
             switch (true)
             {
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.Error):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.Error):
                     boxSeverity = Severity.Error;
                     break;
 
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.Warning):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.Warning):
                     boxSeverity = Severity.Warning;
                     break;
 
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.Info):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.Info):
                     boxSeverity = Severity.Info;
                     break;
 
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.Question):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.Question):
                     boxSeverity = Severity.Question;
                     break;
 
@@ -57,11 +76,11 @@ namespace Nofun.Module.VMGP
             ButtonType buttonType;
             switch (true)
             {
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.OKCancel):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.OKCancel):
                     buttonType = ButtonType.OKCancel;
                     break;
 
-                case true when BitUtil.FlagSet(flags, MessageBoxFlags.YesNo):
+                case true when BitUtil.FlagSet(flagBits, MessageBoxFlags.YesNo):
                     buttonType = ButtonType.YesNo;
                     break;
 
@@ -73,18 +92,18 @@ namespace Nofun.Module.VMGP
 
             string title = null;
 
-            if (BitUtil.FlagSet(flags, MessageBoxFlags.Title))
+            if (BitUtil.FlagSet(flagBits, MessageBoxFlags.Title))
             {
-                title = optionalTitle.Get(system.Memory);
+                title = optionalTitle.Get(system.Memory, isUnicode);
             }
 
-            string content = message.Get(system.Memory);
+            string content = message.Get(system.Memory, isUnicode);
             int buttonValue = 0;
 
             // 0 is already cancel
             system.UIDriver.Show(boxSeverity, title, content, buttonType, (int button) =>
             {
-                buttonValue = button;
+                buttonValue = ToMophunButtonValue(button);
             });
 
             return buttonValue;

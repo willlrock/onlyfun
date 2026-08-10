@@ -78,6 +78,101 @@ namespace Nofun.Tests
         }
 
         [Test]
+        public void InterpreterReportsOutOfRangeOpcodeAsProbablyEncrypted()
+        {
+            Type configType = RuntimeType("Nofun.PIP2.ProcessorConfig");
+            object config = Activator.CreateInstance(configType);
+            configType.GetField("ReadCode").SetValue(config,
+                new Func<uint, uint>(_ => 0xD5021BF3));
+
+            Type interpreterType = RuntimeType("Nofun.PIP2.Interpreter.Interpreter");
+            object interpreter = Activator.CreateInstance(interpreterType, config);
+            uint[] registers = (uint[])interpreterType.BaseType.GetField("registers",
+                BindingFlags.Instance | BindingFlags.NonPublic).GetValue(interpreter);
+            registers[32] = 0x1000;
+
+            TargetInvocationException invocation = Assert.Throws<TargetInvocationException>(() =>
+                interpreterType.GetMethod("Run").Invoke(interpreter, new object[] { 1 }));
+
+            Assert.That(invocation.InnerException, Is.TypeOf<InvalidProgramException>());
+            Assert.That(invocation.InnerException.Message, Does.Contain("0xF3"));
+            Assert.That(invocation.InnerException.Message, Does.Contain("0x00001000"));
+            Assert.That(invocation.InnerException.Message, Does.Contain("encrypted"));
+
+            TargetInvocationException secondInvocation = Assert.Throws<TargetInvocationException>(() =>
+                interpreterType.GetMethod("Run").Invoke(interpreter, new object[] { 1 }));
+            Assert.That(secondInvocation.InnerException, Is.TypeOf<InvalidProgramException>(),
+                "The interpreter must leave its running state after a failed instruction.");
+        }
+
+        [Test]
+        public void FileLoggerPreservesVmFailureDetails()
+        {
+            Type targetType = RuntimeType("Nofun.Util.Unity.FileLogTarget");
+            object target = Activator.CreateInstance(targetType, temporaryDirectory);
+            Type loggerType = RuntimeType("Nofun.Util.Logging.Logger");
+            Type logClassType = RuntimeType("Nofun.Util.Logging.LogClass");
+            object loaderClass = Enum.Parse(logClassType, "Loader");
+            string failure = new InvalidProgramException(
+                "Invalid opcode 0xF3 at PC=0x00001000. The Mophun code section is probably still encrypted.").ToString();
+
+            loggerType.GetMethod("AddTarget").Invoke(null, new[] { target });
+            try
+            {
+                loggerType.GetMethod("Error").Invoke(null,
+                    new[] { loaderClass, $"VM initialization or execution failed: {failure}" });
+            }
+            finally
+            {
+                loggerType.GetMethod("RemoveTarget").Invoke(null, new[] { target });
+            }
+
+            string logPath = (string)targetType.GetProperty("LogPath").GetValue(target);
+            string contents = File.ReadAllText(logPath);
+            Assert.That(contents, Does.Contain("[Error] [Loader]"));
+            Assert.That(contents, Does.Contain("InvalidProgramException"));
+            Assert.That(contents, Does.Contain("0xF3"));
+            Assert.That(contents, Does.Contain("0x00001000"));
+        }
+
+        [Test]
+        public void UnicodeMessageBoxMatchesSdkSignatureAndIsRegistered()
+        {
+            Type moduleType = RuntimeType("Nofun.Module.VMGP.VMGP");
+            Type vmStringType = RuntimeType("Nofun.VM.VMString");
+            MethodInfo method = moduleType.GetMethod("vMsgBoxU",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(method, Is.Not.Null);
+            Assert.That(method.ReturnType, Is.EqualTo(typeof(int)));
+            ParameterInfo[] parameters = method.GetParameters();
+            Assert.That(parameters.Length, Is.EqualTo(3));
+            Assert.That(parameters[0].ParameterType, Is.EqualTo(typeof(int)));
+            Assert.That(parameters[1].ParameterType, Is.EqualTo(vmStringType));
+            Assert.That(parameters[2].ParameterType, Is.EqualTo(vmStringType));
+
+            Type callMapType = RuntimeType("Nofun.VM.VMCallMap");
+            object callMap = Activator.CreateInstance(callMapType, new object[] { null });
+            object module = System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(moduleType);
+            RuntimeType("Nofun.Module.IModule").GetMethod("Register")
+                .Invoke(module, new[] { callMap });
+
+            object registrations = callMapType.GetField("callmap",
+                BindingFlags.Instance | BindingFlags.NonPublic).GetValue(callMap);
+            bool isRegistered = (bool)registrations.GetType().GetMethod("ContainsKey")
+                .Invoke(registrations, new object[] { "vMsgBoxU" });
+            Assert.That(isRegistered, Is.True);
+
+            MethodInfo buttonValueConverter = moduleType.GetMethod("ToMophunButtonValue",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(buttonValueConverter.Invoke(null, new object[] { 0 }), Is.EqualTo(1),
+                "The UI's right-hand OK/Yes result must map to the Mophun success value.");
+            Assert.That(buttonValueConverter.Invoke(null, new object[] { 1 }), Is.EqualTo(0),
+                "The UI's left-hand No/Cancel result must map to the Mophun cancel value.");
+        }
+
+        [Test]
         public void ImportCopiesGameToPrivateDestination()
         {
             string source = Path.Combine(temporaryDirectory, "picked.mpn");

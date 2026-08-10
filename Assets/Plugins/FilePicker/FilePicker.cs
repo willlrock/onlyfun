@@ -113,7 +113,7 @@ namespace Nofun.Plugins
                 onFinished?.Invoke(false);
             }
 #elif UNITY_ANDROID
-            NativeFilePicker.ExportFile(sourcePath, onFinished);
+            NativeFilePicker.ExportFile(sourcePath, success => onFinished?.Invoke(success));
 #else
             onFinished?.Invoke(false);
 #endif

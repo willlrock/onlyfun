@@ -294,10 +294,10 @@ namespace Nofun.VM
             {
                 processor.Run(InstructionPerRun);
             }
-            catch (Exception ex)
+            catch
             {
                 shouldStop = true;
-                throw ex;
+                throw;
             }
 
             inputDriver.EndFrame();

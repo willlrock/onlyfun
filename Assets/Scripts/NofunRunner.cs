@@ -346,9 +346,20 @@ namespace Nofun
             settingDocument.ExitGameRequested -= HandleExitGame;
             gameListDocumentController.ImmediateShow();
 
+            ShowGameFailureDialog(ex);
+        }
+
+        private void ShowGameFailureDialog(System.Exception failure)
+        {
+            string description = translationService.Translate("Error_Description_GameNotCompatible");
+            if (failure != null && !string.IsNullOrWhiteSpace(failure.Message))
+            {
+                description += $"\n\nDetails: {failure.Message}";
+            }
+
             dialogService.Show(Severity.Error, ButtonType.YesNo,
                 null,
-                translationService.Translate("Error_Description_GameNotCompatible") + "\n\nDo you want to save the error logs?",
+                description + "\n\nDo you want to save the error logs?",
                 (int result) =>
                 {
                     if (result == 0)
@@ -445,17 +456,7 @@ namespace Nofun
 
             if (failure != null)
             {
-                dialogService.Show(Severity.Error, ButtonType.YesNo,
-                    null,
-                    translationService.Translate("Error_Description_GameNotCompatible") + "\n\nDo you want to save the error logs?",
-                    (int result) =>
-                    {
-                        if (result == 0)
-                        {
-                            string logPath = System.IO.Path.Combine(Application.persistentDataPath, "onlyfun.log");
-                            Nofun.Plugins.FilePicker.ExportLog(logPath, null);
-                        }
-                    });
+                ShowGameFailureDialog(failure);
             }
         }
 
