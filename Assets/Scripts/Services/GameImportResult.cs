@@ -14,6 +14,9 @@ namespace Nofun.Services
         SourceUnavailable,
         PermissionDenied,
         EmptyFile,
+        InvalidMpn,
+        UnsupportedEncryption,
+        DecryptionFailed,
         CopyFailed
     }
 
@@ -24,21 +27,25 @@ namespace Nofun.Services
         public GameImportErrorCode ErrorCode { get; }
         public string Message { get; }
         public Exception Exception { get; }
+        public bool WasDecrypted { get; }
+        public string SourceSha256 { get; }
 
         private GameImportResult(bool succeeded, string importedPath, GameImportErrorCode errorCode,
-            string message, Exception exception)
+            string message, Exception exception, bool wasDecrypted, string sourceSha256)
         {
             Succeeded = succeeded;
             ImportedPath = importedPath;
             ErrorCode = errorCode;
             Message = message;
             Exception = exception;
+            WasDecrypted = wasDecrypted;
+            SourceSha256 = sourceSha256;
         }
 
-        public static GameImportResult Success(string importedPath) =>
-            new(true, importedPath, GameImportErrorCode.None, null, null);
+        public static GameImportResult Success(string importedPath, bool wasDecrypted = false, string sourceSha256 = null) =>
+            new(true, importedPath, GameImportErrorCode.None, null, null, wasDecrypted, sourceSha256);
 
         public static GameImportResult Failure(GameImportErrorCode errorCode, string message, Exception exception = null) =>
-            new(false, null, errorCode, message, exception);
+            new(false, null, errorCode, message, exception, false, null);
     }
 }

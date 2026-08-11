@@ -80,7 +80,7 @@ namespace Nofun.UI
             }
 
             gameDatabase = new GameDatabase(GameDatabasePath);
-            gameImportService = new GameImportService();
+            gameImportService = new GameImportService(Path.Combine(Application.persistentDataPath, "__MophunCache"));
             dynamicIconsProvider = new DynamicIconsProvider(dynamicIconRendererContainer);
 
             Directory.CreateDirectory(GamePathRoot);
@@ -224,6 +224,12 @@ namespace Nofun.UI
                 return;
             }
 
+            if (importResult.WasDecrypted)
+            {
+                Util.Logging.Logger.Debug(Util.Logging.LogClass.Loader,
+                    $"Encrypted Mophun code was decrypted locally (source SHA-256 {importResult.SourceSha256}).");
+            }
+
             try
             {
                 GameInfo gameInfo;
@@ -280,7 +286,22 @@ namespace Nofun.UI
                         versionNumbers != null && versionNumbers.Length >= 3 ? versionNumbers[2] : 0);
                 }
 
-                if (!gameDatabase.AddGame(gameInfo))
+                GameInfo previousGameInfo = gameDatabase.FindByName(gameInfo.Name);
+                bool databaseChanged;
+                if (previousGameInfo != null)
+                {
+                    // Re-importing an already installed title replaces its private
+                    // working copy. This also upgrades an older encrypted copy
+                    // after the importer has normalized it.
+                    gameInfo.Id = previousGameInfo.Id;
+                    databaseChanged = gameDatabase.UpdateGame(gameInfo);
+                }
+                else
+                {
+                    databaseChanged = gameDatabase.AddGame(gameInfo);
+                }
+
+                if (!databaseChanged)
                 {
                     dialogService.Show(Severity.Error,
                         ButtonType.OK,
@@ -303,7 +324,14 @@ namespace Nofun.UI
                 }
                 catch (Exception ex)
                 {
-                    gameDatabase.RemoveGame(gameInfo);
+                    if (previousGameInfo != null)
+                    {
+                        gameDatabase.UpdateGame(previousGameInfo);
+                    }
+                    else
+                    {
+                        gameDatabase.RemoveGame(gameInfo);
+                    }
                     throw new IOException("Could not finalize the private game copy.", ex);
                 }
 

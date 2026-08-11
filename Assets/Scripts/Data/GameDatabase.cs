@@ -48,6 +48,23 @@ namespace Nofun.Data
             }
         }
 
+        public Model.GameInfo FindByName(string name)
+        {
+            return _connection.Table<Model.GameInfo>().FirstOrDefault(x => x.Name == name);
+        }
+
+        public bool UpdateGame(Model.GameInfo game)
+        {
+            try
+            {
+                return _connection.Update(game) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public void RemoveGame(Model.GameInfo game)
         {
             _connection.Delete(game);

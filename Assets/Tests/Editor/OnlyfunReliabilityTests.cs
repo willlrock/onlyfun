@@ -177,7 +177,7 @@ namespace Nofun.Tests
         {
             string source = Path.Combine(temporaryDirectory, "picked.mpn");
             string destination = Path.Combine(temporaryDirectory, "__Games", "00000001.mpn");
-            byte[] contents = { 1, 2, 3, 4 };
+            byte[] contents = CreateMinimalPlainMpn();
             File.WriteAllBytes(source, contents);
 
             object result = Import(source, destination);
@@ -185,6 +185,52 @@ namespace Nofun.Tests
             Assert.That(Property(result, "Succeeded"), Is.True);
             Assert.That(Property(result, "ImportedPath"), Is.EqualTo(destination));
             Assert.That(File.ReadAllBytes(destination), Is.EqualTo(contents));
+        }
+
+        [Test]
+        public void ImportRejectsInvalidMpnWithTypedError()
+        {
+            string source = Path.Combine(temporaryDirectory, "invalid.mpn");
+            File.WriteAllBytes(source, new byte[] { 1, 2, 3, 4 });
+
+            object result = Import(source,
+                Path.Combine(temporaryDirectory, "__Games", "00000001.mpn"));
+
+            Assert.That(Property(result, "Succeeded"), Is.False);
+            Assert.That(Property(result, "ErrorCode").ToString(), Is.EqualTo("InvalidMpn"));
+        }
+
+        [Test]
+        public void EncryptedHoneyCaveIsDecryptedAndCachedWithoutChangingSource()
+        {
+            string source = Environment.GetEnvironmentVariable("ONLYFUN_TEST_GAME");
+            string expected = Environment.GetEnvironmentVariable("ONLYFUN_EXPECTED_DECRYPTED");
+            if (string.IsNullOrWhiteSpace(source) || !File.Exists(source) ||
+                string.IsNullOrWhiteSpace(expected) || !File.Exists(expected))
+            {
+                Assert.Ignore("Set ONLYFUN_TEST_GAME and ONLYFUN_EXPECTED_DECRYPTED for the encrypted fixture test.");
+            }
+
+            string destination = Path.Combine(temporaryDirectory, "__Games", "00000001.mpn");
+            string cache = Path.Combine(temporaryDirectory, "__MophunCache");
+            byte[] original = File.ReadAllBytes(source);
+            byte[] expectedBytes = File.ReadAllBytes(expected);
+
+            Type serviceType = RuntimeType("Nofun.Services.GameImportService");
+            object service = Activator.CreateInstance(serviceType, new object[] { cache });
+            object first = serviceType.GetMethod("Import").Invoke(service, new[] { source, destination });
+
+            Assert.That(Property(first, "Succeeded"), Is.True);
+            Assert.That(Property(first, "WasDecrypted"), Is.True);
+            Assert.That(File.ReadAllBytes(destination), Is.EqualTo(expectedBytes));
+            Assert.That(File.ReadAllBytes(source), Is.EqualTo(original));
+
+            File.Delete(destination);
+            object second = serviceType.GetMethod("Import").Invoke(service, new[] { source, destination });
+            Assert.That(Property(second, "Succeeded"), Is.True);
+            Assert.That(Property(second, "WasDecrypted"), Is.True);
+            Assert.That(File.ReadAllBytes(destination), Is.EqualTo(expectedBytes));
+            Assert.That(Directory.GetFiles(cache, "*.mpn").Length, Is.EqualTo(1));
         }
 
         [Test]
@@ -205,6 +251,28 @@ namespace Nofun.Tests
             Type serviceType = RuntimeType("Nofun.Services.GameImportService");
             object service = Activator.CreateInstance(serviceType);
             return serviceType.GetMethod("Import").Invoke(service, new[] { source, destination });
+        }
+
+        private static byte[] CreateMinimalPlainMpn()
+        {
+            byte[] bytes = new byte[52];
+            bytes[0] = (byte)'V';
+            bytes[1] = (byte)'M';
+            bytes[2] = (byte)'G';
+            bytes[3] = (byte)'P';
+            WriteUInt32(bytes, 12, 4);
+            WriteUInt32(bytes, 24, 8);
+            WriteUInt32(bytes, 40, 0);
+            WriteUInt32(bytes, 48, 0);
+            return bytes;
+        }
+
+        private static void WriteUInt32(byte[] bytes, int offset, uint value)
+        {
+            bytes[offset] = (byte)value;
+            bytes[offset + 1] = (byte)(value >> 8);
+            bytes[offset + 2] = (byte)(value >> 16);
+            bytes[offset + 3] = (byte)(value >> 24);
         }
 
         private Type RuntimeType(string name) =>
