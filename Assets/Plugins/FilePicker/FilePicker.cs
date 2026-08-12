@@ -71,6 +71,65 @@ namespace Nofun.Plugins
         }
 #endif
 
+        /// <summary>
+        /// Opens a picker for one game set. Android uses the native multi-file
+        /// picker when available; desktop/editor fall back to a single selection.
+        /// </summary>
+        public static bool OpenPickFilesDialog(FilterItem[] filters, Action<string[]> onPathsReceived, string defaultPath = null)
+        {
+#if UNITY_EDITOR
+            List<string> filterMapped = new();
+            foreach (FilterItem filter in filters)
+            {
+                filterMapped.Add(filter.name);
+                filterMapped.Add(filter.spec);
+            }
+
+            string path = UnityEditor.EditorUtility.OpenFilePanelWithFilters("Select game files", defaultPath ?? "", filterMapped.ToArray());
+            onPathsReceived?.Invoke(string.IsNullOrEmpty(path) ? new string[0] : new[] { path });
+            return true;
+#elif UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN || UNITY_STANDALONE_LINUX
+            string path = NativeFileDialog.OpenPickFileDialog(filters, defaultPath);
+            onPathsReceived?.Invoke(string.IsNullOrEmpty(path) ? new string[0] : new[] { path });
+            return true;
+#elif UNITY_ANDROID
+            string[] allowedTypes = filters == null
+                ? new[] { "*/*" }
+                : filters.Select(item => item.spec).ToArray();
+
+            if (NativeFilePicker.CanPickMultipleFiles())
+            {
+                NativeFilePicker.PickMultipleFiles(
+                    (string[] paths) =>
+                    {
+                        if (paths == null || paths.Length == 0)
+                        {
+                            Debug.LogWarning("Open multi-file picker was cancelled or permission was denied.");
+                            onPathsReceived?.Invoke(new string[0]);
+                        }
+                        else
+                        {
+                            onPathsReceived?.Invoke(paths);
+                        }
+                    },
+                    allowedTypes
+                );
+            }
+            else
+            {
+                NativeFilePicker.PickFile(
+                    (string path) => onPathsReceived?.Invoke(string.IsNullOrEmpty(path) ? new string[0] : new[] { path }),
+                    allowedTypes
+                );
+            }
+
+            return true;
+#else
+            onPathsReceived?.Invoke(new string[0]);
+            return false;
+#endif
+        }
+
         public static void ExportLog(string sourcePath, Action<bool> onFinished)
         {
 #if UNITY_EDITOR

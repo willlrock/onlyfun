@@ -23,6 +23,7 @@ using Nofun.DynamicIcons;
 using Nofun.Parser;
 using Nofun.Services;
 using Nofun.Plugins;
+using Nofun.Util;
 using UnityEngine;
 using UnityEngine.UIElements;
 using VContainer;
@@ -199,23 +200,65 @@ namespace Nofun.UI
                 File.Delete(gamePath);
             }
 
+            DeleteDirectory(GetGameResourcePath(gameInfo));
+
             gameDatabase.RemoveGame(gameInfo);
             LoadGameList();
         }
 
         private void InstallGame(string path)
         {
-            if (string.IsNullOrEmpty(path))
+            InstallGame(string.IsNullOrEmpty(path) ? null : new[] { path });
+        }
+
+        private string GetGameResourcePath(GameInfo gameInfo)
+        {
+            return Path.Combine(Application.persistentDataPath, gameInfo.Name.ToValidFileName());
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                {
+                    Directory.Delete(path, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Util.Logging.Logger.Warning(Util.Logging.LogClass.Loader,
+                    $"Could not remove game resource directory '{path}': {ex}");
+            }
+        }
+
+        private void InstallGame(string[] paths)
+        {
+            if (paths == null || paths.Length == 0)
             {
                 return;
             }
 
             string stagedPath = Path.Combine(GamePathRoot, $".{Guid.NewGuid():N}.mpn");
-            GameImportResult importResult = gameImportService.Import(path, stagedPath);
+            string stagedResourceDirectory = Path.Combine(GamePathRoot, $".{Guid.NewGuid():N}.resources");
+            GameImportResult importResult = gameImportService.ImportBundle(paths, stagedPath, stagedResourceDirectory);
             if (!importResult.Succeeded)
             {
                 Util.Logging.Logger.Error(Util.Logging.LogClass.Loader,
                     $"Game import failed ({importResult.ErrorCode}): {importResult.Message}\n{importResult.Exception}");
+                try
+                {
+                    if (File.Exists(stagedPath))
+                    {
+                        File.Delete(stagedPath);
+                    }
+                    DeleteDirectory(stagedResourceDirectory);
+                }
+                catch (Exception cleanupException)
+                {
+                    Util.Logging.Logger.Warning(Util.Logging.LogClass.Loader,
+                        $"Could not remove failed staged game import: {cleanupException}");
+                }
                 dialogService.Show(Severity.Error,
                     ButtonType.OK,
                     translationService.Translate("Error"),
@@ -228,6 +271,18 @@ namespace Nofun.UI
             {
                 Util.Logging.Logger.Debug(Util.Logging.LogClass.Loader,
                     $"Encrypted Mophun code was decrypted locally (source SHA-256 {importResult.SourceSha256}).");
+            }
+
+            if (importResult.WasMultipart)
+            {
+                Util.Logging.Logger.Debug(Util.Logging.LogClass.Loader,
+                    $"Assembled multipart MPN set ({importResult.MultipartPartCount} parts).");
+            }
+
+            if (importResult.ImportedResourcePaths != null && importResult.ImportedResourcePaths.Length > 0)
+            {
+                Util.Logging.Logger.Debug(Util.Logging.LogClass.Loader,
+                    $"Imported {importResult.ImportedResourcePaths.Length} related MPC resource(s).");
             }
 
             try
@@ -313,6 +368,11 @@ namespace Nofun.UI
                 }
 
                 string gamePath = GetGamePath(gameInfo);
+                string gameResourcePath = GetGameResourcePath(gameInfo);
+                bool shouldMoveResources = importResult.ImportedResourcePaths != null &&
+                    importResult.ImportedResourcePaths.Length > 0;
+                bool gameWasMoved = false;
+                bool resourcesWereMoved = false;
                 try
                 {
                     if (File.Exists(gamePath))
@@ -321,9 +381,33 @@ namespace Nofun.UI
                     }
 
                     File.Move(stagedPath, gamePath);
+                    gameWasMoved = true;
+
+                    if (shouldMoveResources)
+                    {
+                        DeleteDirectory(gameResourcePath);
+                        Directory.Move(importResult.ImportedResourceDirectory, gameResourcePath);
+                        resourcesWereMoved = true;
+                    }
                 }
                 catch (Exception ex)
                 {
+                    if (resourcesWereMoved)
+                    {
+                        DeleteDirectory(gameResourcePath);
+                    }
+                    if (gameWasMoved && File.Exists(gamePath))
+                    {
+                        try
+                        {
+                            File.Delete(gamePath);
+                        }
+                        catch
+                        {
+                            // Keep the original finalization exception as the user-facing error.
+                        }
+                    }
+
                     if (previousGameInfo != null)
                     {
                         gameDatabase.UpdateGame(previousGameInfo);
@@ -361,6 +445,8 @@ namespace Nofun.UI
                     {
                         File.Delete(stagedPath);
                     }
+
+                    DeleteDirectory(stagedResourceDirectory);
                 }
                 catch (Exception ex)
                 {
@@ -372,13 +458,18 @@ namespace Nofun.UI
 
         private void OnInstallButtonClicked()
         {
-            bool permissionGranted = FilePicker.OpenPickFileDialog(new FilterItem[]
+            bool permissionGranted = FilePicker.OpenPickFilesDialog(new FilterItem[]
             {
                 #if UNITY_EDITOR || !UNITY_ANDROID
                 new FilterItem
                 {
                     name = "Mophun game",
                     spec = "mpn"
+                },
+                new FilterItem
+                {
+                    name = "Mophun resource",
+                    spec = "mpc"
                 }
                 #else
                 new FilterItem
@@ -392,11 +483,11 @@ namespace Nofun.UI
                     spec = "*/*"
                 }
                 #endif
-            }, (string path) =>
+            }, (string[] paths) =>
             {
-                if (!string.IsNullOrEmpty(path))
+                if (paths != null && paths.Length > 0)
                 {
-                    InstallGame(path);
+                    InstallGame(paths);
                 }
             });
 

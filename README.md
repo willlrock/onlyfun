@@ -11,12 +11,14 @@ The current development build targets Android 8.0+ (API 26) and ARM64 devices. I
 ## Import a game
 
 1. Open Onlyfun and tap **+**.
-2. Select the original `.mpn` file.
-3. Onlyfun validates it, detects encrypted Mophun code, and decrypts supported files locally when needed.
+2. Select the original `.mpn` file. If the game is split into numbered parts such as `1_4_Game.mpn` … `4_4_Game.mpn`, select all parts in the same picker operation. You can select its related `.mpc` resource packs at the same time.
+3. Onlyfun assembles multipart MPNs in numeric order, imports the MPC resources into the game's private folder, validates the result, and detects encrypted Mophun code before decrypting supported files locally when needed.
 
 The original file is never modified. Decrypted working copies are stored in the app's private storage and cached by the source file's SHA-256, so the same game is not decrypted again on every import.
 
 No key files, desktop tools, manual conversion, or extra user steps are required.
+
+If only one part of a multipart game is selected and the other parts are not available to the Android file provider, Onlyfun reports which parts are missing instead of trying to launch a broken file.
 
 If a game uses an unsupported Mophun format, Onlyfun shows a readable error and records the technical details in `onlyfun.log`.
 

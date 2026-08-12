@@ -201,6 +201,53 @@ namespace Nofun.Tests
         }
 
         [Test]
+        public void MultipartMpnPartsAreAssembledAndMpcResourcesCopied()
+        {
+            string firstPart = Path.Combine(temporaryDirectory, "1_2_TestGame.mpn");
+            string secondPart = Path.Combine(temporaryDirectory, "2_2_TestGame.mpn");
+            string resource = Path.Combine(temporaryDirectory, "TestGame_extrapack.mpc");
+            string destination = Path.Combine(temporaryDirectory, "__Games", "00000001.mpn");
+            string resourceDirectory = Path.Combine(temporaryDirectory, "__Resources");
+            byte[] original = CreateMinimalPlainMpn();
+
+            File.WriteAllBytes(firstPart, Slice(original, 0, 19));
+            File.WriteAllBytes(secondPart, Slice(original, 19, original.Length - 19));
+            File.WriteAllBytes(resource, new byte[] { 0x4D, 0x50, 0x43, 0x01, 0x02 });
+
+            Type serviceType = RuntimeType("Nofun.Services.GameImportService");
+            object service = Activator.CreateInstance(serviceType);
+            object result = serviceType.GetMethod("ImportBundle").Invoke(service,
+                new object[] { new[] { secondPart, firstPart, resource }, destination, resourceDirectory });
+
+            Assert.That(Property(result, "Succeeded"), Is.True);
+            Assert.That(Property(result, "WasMultipart"), Is.True);
+            Assert.That(Property(result, "MultipartPartCount"), Is.EqualTo(2));
+            Assert.That(File.ReadAllBytes(destination), Is.EqualTo(original));
+
+            string copiedResource = Path.Combine(resourceDirectory, Path.GetFileName(resource));
+            Assert.That(File.Exists(copiedResource), Is.True);
+            Assert.That(File.ReadAllBytes(copiedResource), Is.EqualTo(File.ReadAllBytes(resource)));
+            Assert.That((string[])Property(result, "ImportedResourcePaths"), Is.EqualTo(new[] { copiedResource }));
+        }
+
+        [Test]
+        public void MultipartMpnReportsMissingPartWithoutWritingOutput()
+        {
+            string part = Path.Combine(temporaryDirectory, "1_3_Incomplete.mpn");
+            string destination = Path.Combine(temporaryDirectory, "__Games", "00000001.mpn");
+            File.WriteAllBytes(part, new byte[] { 1, 2, 3 });
+
+            Type serviceType = RuntimeType("Nofun.Services.GameImportService");
+            object service = Activator.CreateInstance(serviceType);
+            object result = serviceType.GetMethod("ImportBundle").Invoke(service,
+                new object[] { new[] { part }, destination, Path.Combine(temporaryDirectory, "__Resources") });
+
+            Assert.That(Property(result, "Succeeded"), Is.False);
+            Assert.That(Property(result, "ErrorCode").ToString(), Is.EqualTo("MissingMultipartPart"));
+            Assert.That(File.Exists(destination), Is.False);
+        }
+
+        [Test]
         public void EncryptedHoneyCaveIsDecryptedAndCachedWithoutChangingSource()
         {
             string source = Environment.GetEnvironmentVariable("ONLYFUN_TEST_GAME");
@@ -273,6 +320,13 @@ namespace Nofun.Tests
             bytes[offset + 1] = (byte)(value >> 8);
             bytes[offset + 2] = (byte)(value >> 16);
             bytes[offset + 3] = (byte)(value >> 24);
+        }
+
+        private static byte[] Slice(byte[] bytes, int offset, int count)
+        {
+            byte[] result = new byte[count];
+            Buffer.BlockCopy(bytes, offset, result, 0, count);
+            return result;
         }
 
         private Type RuntimeType(string name) =>
