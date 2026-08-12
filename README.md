@@ -1,54 +1,56 @@
-<h1><img src="https://github.com/RadratSoftworks/nofun/assets/25717050/821e82c9-81bd-4b4c-bde5-40869701a8d4" alt="Nofun" style="max-height: 3rem;" /> Nofun</h1>
+# Onlyfun for Android
 
-Nofun contains a Mophun emulator, written in C# and currently run under Unity environment.
-
-Currently, the emulator still is not mature for many 3D games, and does not support encrypted/compressed.
+Onlyfun is an Android-only Mophun emulator built with Unity. This fork focuses on getting legacy Mophun games running on modern Android phones with as little setup as possible.
 
 ## Download
 
-It's recommended to download the emulator through the **Releases** section on the project's Github page.
+Download the newest Android APK from the [Releases](https://github.com/willlrock/onlyfun/releases) page.
 
-## Screenshots
+The current development build targets Android 8.0+ (API 26) and ARM64 devices. It is a test build: install it manually and allow Android to install apps from your browser or file manager when prompted.
 
-| The DaVinci Code         |  Sushi Fighter           |
-:-------------------------:|:-------------------------:
-![The DaVinci Code - PC](https://github.com/RadratSoftworks/nofun/assets/25717050/d881873b-2c12-4b77-91b0-161b1c4c0598) | ![Sushi Fighter - PC](https://github.com/RadratSoftworks/nofun/assets/25717050/e7ca4f63-4611-4833-a1d9-7edfa4b27e8f)
+## Import a game
 
-| Honey Cave 2             |  Rally Pro Contest       |
-:-------------------------:|:-------------------------:
-![Screenshot_2023-05-24-04-17-14-662_com Radrat nofun](https://github.com/RadratSoftworks/nofun/assets/25717050/65c0b87e-0c15-4e59-ae1e-8afde21f4d20) | ![Screenshot_2023-05-24-04-18-09-280_com Radrat nofun](https://github.com/RadratSoftworks/nofun/assets/25717050/c5b8fb07-605b-40b8-939d-47e6b3a6c4f1)
+1. Open Onlyfun and tap **+**.
+2. Select the original `.mpn` file.
+3. Onlyfun validates it, detects encrypted Mophun code, and decrypts supported files locally when needed.
 
-## Controls
+The original file is never modified. Decrypted working copies are stored in the app's private storage and cached by the source file's SHA-256, so the same game is not decrypted again on every import.
 
-- W,A,S,D/arrow keys/DPad: movement
-- Gamepad A/Enter/Right mouse: Fire1
-- Gamepad B/Space: Fire2
-- Gamepad Select/Esc/Three bars button on screen: Back
+No key files, desktop tools, manual conversion, or extra user steps are required.
+
+If a game uses an unsupported Mophun format, Onlyfun shows a readable error and records the technical details in `onlyfun.log`.
+
+## Honey Cave 2
+
+The Android build includes the encryption profile required by the encrypted Honey Cave 2 MPNs commonly found in preservation archives. After import, the game should launch in the same way as an already decrypted copy.
 
 ## Game configuration
 
-When launching a game for the first time, a configuration screen is opened.
+Open a game's settings before launch, or use the gear button while it is running. Some Sony Ericsson games require a matching phone model and system version 1.30; Honey Cave 2 uses its legacy compatibility profile automatically.
 
-To access and edit the configuration of a running game again, click/touch on the Cog/Gear/Settings button on the screen.
+## Reporting a problem
 
-**Note**: for Sony Ericcsion game:
-- You may need to select a specific SE phone model in order to run a game (T300/T6x0), else the game will throw the "Terminal not found" error (the game checks for running phone model)
-- In addition, you should select System version 1.30 to run Sony Ericssion phone games.
+Please include:
 
-## Portablity
+- Android model and OS version;
+- the Onlyfun APK version;
+- the exact error shown in the app;
+- `onlyfun.log` from the export dialog.
 
-The core code in Scripts folder has also been prepared and designed to allow other backends like SDL2 to integrate in.
+Do not upload commercial game files or ROMs to the repository.
 
-## Attributions
+## Development
 
-Thanks Mr. JaGoTu for providing decompression algorithm.
+This project is intended to be opened with Unity **6000.5.6f1 (Unity 6.5)** and the Android Build Support module. The Android player is built with IL2CPP and API 26 minimum SDK.
 
-Thanks Mr. 1upus for helping with games' encryption.
+The encrypted-game importer is organized around profiles, so additional Mophun encryption families can be added without changing the Android import flow.
 
-Thanks for the effort of Kahvibreak server for preserving needed resources.
+## Credits
+
+Onlyfun is based on the original Nofun project by Radrat Softworks. Thanks to JaGoTu for the decompression work, 1upus for help with Mophun encryption, and the Kahvibreak preservation community for recovered resources.
 
 ## License
 
 Copyright 2023 Radrat Softworks.
 
-The code is licensed under Apache License 2.0. Visit the [LICENSE](LICENSE) file for more information.
+The source code is licensed under the [Apache License 2.0](LICENSE).
